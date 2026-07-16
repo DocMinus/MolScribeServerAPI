@@ -1,0 +1,32 @@
+services:
+  molscribe:
+    container_name: molscribeserverapi_cuda
+    image: molscribeserverapi-cuda:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    volumes:
+      - model_files:/home/appuser/.data/molscribe
+    ports:
+      - "8999:8999"
+    restart: always
+    networks:
+      - molscribenetwork
+
+volumes:
+  model_files:
+    name: molscribeserverapi_model_files
+
+networks:
+  molscribenetwork:
+    name: molscribenetwork

@@ -1,0 +1,38 @@
+# NB: pyproject.toml, uv.lock, .python-version and molscribe_server.py must NOT be ignored —
+# the build (uv sync) and the app need them.
+
+# IDE / env
+**/.idea
+**/__pycache__
+**/.ipynb_checkpoints
+**/*.log
+**/.vscode
+**/.vs
+**/.conda
+**/.env
+**/.venv/
+**/env/
+**/venv/
+**/.ruff_cache
+**/*egg-info
+**/*.egg
+**/dist
+**/build
+**/.pytest_cache
+
+# Build/compose/docs not needed inside the image
+Dockerfile*
+docker-compose*.yml
+Makefile
+README.md
+API_ENDPOINTS.md
+LICENSE
+.git
+.gitignore
+.dockerignore
+
+# macOS system files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes

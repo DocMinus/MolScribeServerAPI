@@ -1,0 +1,51 @@
+# CUDA (GPU) image for the MolScribe server — the counterpart to the CPU Dockerfile.
+#
+# Design: the CPU image pins torch to the CPU-only index (small); this image installs the
+# STOCK PyPI torch wheel, which IS the CUDA build (`torch==2.13.0` ships as `+cu130` and
+# bundles the CUDA 13 userspace libraries: cuBLAS, cuDNN, cuSPARSE, NCCL, ...). The GPU
+# *driver* (`libcuda.so.1`) is NOT in the wheel — it is injected from the host's NVIDIA
+# driver at run time by the NVIDIA Container Toolkit. So this image needs:
+#   * a host NVIDIA driver new enough for CUDA 13 (>= ~580; e.g. tested target driver 595.71.x)
+#   * `docker compose -f docker-compose.cuda.yml up` (grants the GPU via the device reservation)
+# molscribe_server.py already selects cuda when torch.cuda.is_available(), so no code change.
+#
+# A plain slim base is used (not pytorch/pytorch:*-cuda*) so the torch/CUDA version matches the
+# CPU image exactly and there is no double copy of the CUDA libraries.
+FROM python:3.11-slim-bullseye
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx libglib2.0-0 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# HuggingFace cache under the mounted volume so the ~400 MB checkpoint downloads once.
+ENV HF_HOME=/home/appuser/.data/molscribe
+RUN mkdir -p /home/appuser/.data/molscribe
+
+WORKDIR /app
+COPY . /app
+
+# Stock CUDA torch/torchvision (bundles the CUDA 13 runtime), then MolScribe (--no-deps) and
+# its remaining runtime deps. torch is installed first so the deps below (timm, OpenNMT-py ->
+# torchtext) see it already satisfied and don't pull a second copy. numpy pinned <2 for the
+# older timm/albumentations/OpenNMT code paths.
+RUN pip install --upgrade pip && \
+    pip install torch==2.13.0 torchvision==0.28.0 && \
+    pip install --no-deps molscribe && \
+    pip install \
+        fastapi==0.115.5 uvicorn==0.32.1 python-multipart==0.0.19 "pillow>=9.0.0" \
+        "numpy==1.26.4" rdkit==2024.3.5 pandas==2.3.3 "opencv-python>=4.5.5.64" \
+        SmilesPE==0.0.3 OpenNMT-py==2.2.0 albumentations==1.1.0 timm==0.4.12 \
+        "huggingface-hub>=0.11.0"
+
+RUN adduser --disabled-password --gecos '' appuser \
+    && chown -R appuser:appuser /app \
+    && chown -R appuser:appuser /home/appuser/.data
+USER appuser
+ENV HOME=/home/appuser
+
+EXPOSE 8999
+ENV PYTHONPATH=/app
+ENTRYPOINT ["python", "molscribe_server.py"]

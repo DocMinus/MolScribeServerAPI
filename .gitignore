@@ -1,0 +1,41 @@
+# IDE and environment directories
+**/.idea
+**/__pycache__
+**/.ipynb_checkpoints
+**/*.log
+**/.vscode
+**/.vs
+**/.conda
+**/.env
+**/.venv
+**/env
+**/venv
+/.temp
+**/.ruff_cache
+
+# installer / build artifacts
+**/*egg-info
+**/*.egg
+**/dist
+**/build
+
+# uv.lock IS tracked (kept for reproducible builds)
+
+# Backup / temp
+*.bkp
+tmp.txt
+tmp.csv
+result.tmp
+
+# Image files (test inputs)
+*.png
+*.gif
+*.jpg
+*.jpeg
+*.bmp
+
+# macOS system files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes

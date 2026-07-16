@@ -1,0 +1,27 @@
+services:
+  molscribe_api:
+    # `build` lets `docker compose up --build` build locally; `image` names the built/pulled
+    # image (what `make release` pushes to Docker Hub). Pinned to linux/amd64: the CPU-only torch
+    # wheels (see pyproject.toml) are published for x86_64, so this is an amd64 image (it runs on
+    # Apple Silicon via emulation). GPU users use docker-compose.cuda.yml instead.
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docker.io/docminus/molscribe_api:latest
+    container_name: molscribeapi
+    ports:
+      - "8999:8999"
+    volumes:
+      - model_files:/home/appuser/.data/molscribe # HF cache: the ~400 MB checkpoint downloads once
+    restart: always
+    networks:
+      - molscribenetwork
+
+volumes:
+  model_files:
+    name: molscribeserverapi_model_files
+
+networks:
+  molscribenetwork:
+    name: molscribenetwork

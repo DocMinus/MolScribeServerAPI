@@ -1,0 +1,48 @@
+[project]
+name = "molscribe-server"
+version = "0.1.0"
+description = "MolScribe image-to-SMILES FastAPI server"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    # --- server ---
+    "fastapi==0.115.5",
+    "uvicorn==0.32.1",
+    "python-multipart==0.0.19",
+    "pillow>=9.0.0",
+    "numpy==1.26.4",
+    "rdkit==2024.3.5",
+    "torch",
+    "torchvision",
+    "pandas==2.3.3",
+    "opencv-python>=4.5.5.64",
+    "SmilesPE==0.0.3",
+    "OpenNMT-py==2.2.0",
+    "albumentations==1.1.0",
+    "timm==0.4.12",
+    "huggingface-hub>=0.11.0",
+]
+
+# Single-script service (molscribe_server.py at the repo root); nothing to build/package, so
+# `uv sync` only provisions the dependencies into the environment.
+[tool.uv]
+package = false
+# Resolve/lock only for the platforms the CPU image and local dev actually run on: this CPU
+# image is a linux/amd64 artifact, plus macOS (arm64) for local `uv run` development. Excluding
+# linux/aarch64 keeps the lock unambiguous (the CPU wheels below are published for x86_64).
+environments = [
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+# On Linux, pull torch/torchvision from PyTorch's CPU-only index — the default PyPI wheel is the
+# CUDA build (`+cuXXX`) and bundles ~3.5 GB of NVIDIA runtime libs this CPU server never uses.
+# On macOS the default PyPI wheel is already CPU/MPS (no CUDA), so no override is needed there.
+# The GPU path is a separate image (Dockerfile.cuda), which intentionally uses the CUDA torch.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
