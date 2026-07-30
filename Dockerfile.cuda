@@ -13,8 +13,13 @@
 # CPU image exactly and there is no double copy of the CUDA libraries.
 FROM python:3.11-slim-bullseye
 
+# gcc/libc6-dev are required at RUN TIME, not build time: on CUDA, torch 2.13 dispatches the
+# decoder's attention through a Triton kernel (torch/_native/ops/bmm_outer_product), and Triton
+# JIT-compiles its CUDA utils module on first use. Without a C compiler every inference raises
+# `RuntimeError: Failed to find C compiler`. The CPU image needs none of this — the CPU torch
+# wheel doesn't ship Triton and never takes that path.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx libglib2.0-0 && \
+    libgl1-mesa-glx libglib2.0-0 gcc libc6-dev && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1
@@ -40,9 +45,11 @@ RUN pip install --upgrade pip && \
         SmilesPE==0.0.3 OpenNMT-py==2.2.0 albumentations==1.1.0 timm==0.4.12 \
         "huggingface-hub>=0.11.0"
 
+# /home/appuser itself must be owned by appuser, not just .data: Triton writes its JIT cache to
+# $HOME/.triton on first inference, and a root-owned home makes that a PermissionError.
 RUN adduser --disabled-password --gecos '' appuser \
     && chown -R appuser:appuser /app \
-    && chown -R appuser:appuser /home/appuser/.data
+    && chown -R appuser:appuser /home/appuser
 USER appuser
 ENV HOME=/home/appuser
 

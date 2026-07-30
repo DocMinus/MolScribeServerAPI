@@ -20,6 +20,7 @@ license: MIT
 
 import base64
 import binascii
+import logging
 import os
 import types
 from io import BytesIO
@@ -31,6 +32,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from huggingface_hub import hf_hub_download
 from PIL import Image
+from rdkit import Chem
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -38,6 +40,8 @@ from PIL import Image
 
 MOLSCRIBE_REPO = "yujieq/MolScribe"
 MOLSCRIBE_CHECKPOINT = "swin_base_char_aux_1m.pth"
+
+LOGGER = logging.getLogger("molscribe_server")
 
 
 def _get_max_payload_size() -> int:
@@ -120,6 +124,58 @@ def _load_model():
 MODEL = _load_model()
 
 
+_NON_TETRAHEDRAL_TAGS = frozenset(
+    {
+        Chem.ChiralType.CHI_SQUAREPLANAR,
+        Chem.ChiralType.CHI_TRIGONALBIPYRAMIDAL,
+        Chem.ChiralType.CHI_OCTAHEDRAL,
+    }
+)
+
+# d-block atomic numbers: Sc-Zn, Y-Cd, La-Hg, Ac-Cn. Square-planar, trigonal-bipyramidal and
+# octahedral stereochemistry is genuine on these, so their descriptors are left alone.
+_METAL_ATOMIC_NUMS = frozenset(
+    set(range(21, 31)) | set(range(39, 49)) | set(range(57, 81)) | set(range(89, 113))
+)
+
+
+def _strip_spurious_nontetrahedral_stereo(smiles: str) -> str:
+    """Drops non-tetrahedral stereo descriptors that MolScribe invents on main-group atoms.
+
+    MolScribe's molfile-to-SMILES conversion can emit a square-planar descriptor for an
+    ordinary sulfonyl sulfur, e.g. ``O=[S@SP2](=O)(n1...)C(F)(F)F``. That is meaningless — the
+    sulfur is tetrahedral, and its two identical ``=O`` groups make it non-stereogenic, which
+    RDKit confirms by reporting no stereocentres at all. But the descriptor is still carried
+    into the canonical SMILES, so a correct prediction fails an exact-match comparison against
+    the true structure.
+
+    Only main-group atoms are cleaned. On d-block metals these descriptors are real chemistry
+    (cisplatin is a genuine ``[Pt@SP1]``), so those are preserved.
+
+    Note ``RemoveStereochemistry`` is the wrong tool here — it also flattens legitimate
+    tetrahedral and double-bond stereo — and ``AssignStereochemistry(cleanIt=True)`` does not
+    touch non-tetrahedral descriptors at all. Returns the input unchanged if RDKit cannot parse
+    it, or if there was nothing to strip.
+    """
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return smiles
+
+    changed = False
+    for atom in mol.GetAtoms():
+        if (
+            atom.GetChiralTag() in _NON_TETRAHEDRAL_TAGS
+            and atom.GetAtomicNum() not in _METAL_ATOMIC_NUMS
+        ):
+            atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+            changed = True
+
+    if not changed:
+        return smiles
+    return Chem.MolToSmiles(mol)
+
+
 def _predict_smiles(decoded_bytes: bytes) -> dict:
     """Convert raw image bytes to a MolScribe prediction dict.
 
@@ -131,11 +187,16 @@ def _predict_smiles(decoded_bytes: bytes) -> dict:
         image = Image.open(BytesIO(decoded_bytes))
         rgb = np.asarray(image.convert("RGB"))
     except Exception:
+        LOGGER.warning("image decode failed", exc_info=True)
         raise _DecodeError()
 
     try:
         result = MODEL.predict_image(rgb, return_confidence=True)
     except Exception:
+        # Log the traceback: environment faults (CUDA OOM, a missing Triton C compiler, an
+        # unwritable JIT cache) fail here exactly like a genuine chemistry failure would, and
+        # a bare `reason: prediction_failed` reads downstream as "not a molecule".
+        LOGGER.exception("MolScribe prediction failed on a %s image", rgb.shape)
         raise _PredictionError()
 
     confidence = result.get("confidence")
@@ -146,6 +207,8 @@ def _predict_smiles(decoded_bytes: bytes) -> dict:
             confidence = None
 
     smiles = result.get("smiles") or None  # normalise empty string to None
+    if smiles is not None:
+        smiles = _strip_spurious_nontetrahedral_stereo(smiles)
     return {"smiles": smiles, "molfile": result.get("molfile"), "confidence": confidence}
 
 
