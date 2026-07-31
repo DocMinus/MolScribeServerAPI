@@ -55,8 +55,8 @@ curl http://localhost:8999/system/status                  # -> {"accelerator_typ
 ```
 
 `molscribe_server.py` auto-selects the GPU when `torch.cuda.is_available()`, so no code change is
-needed. Not tested here (no GPU on the build host); tested target is a Linux box with CUDA 13 /
-driver 595.71.x. If the container reports `accelerator_type: cpu`, the GPU wasn't granted — check
+needed. Tested on Linux box with CUDA 13 / driver 595.71.x. 
+If the container reports `accelerator_type: cpu`, the GPU wasn't granted — check
 the driver version and that the toolkit/`docker-compose.cuda.yml` device reservation are in effect.
 
 ## Local development (without Docker)
