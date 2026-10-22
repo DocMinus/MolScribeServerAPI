@@ -4,12 +4,15 @@
 # the image small; the GPU counterpart is Dockerfile.cuda, which uses the CUDA torch build.
 #
 ## -------- Builder Stage ----------##
-FROM python:3.11-slim-bullseye AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     build-essential && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    pip install --upgrade pip
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# uv comes from its official image, pinned by digest, instead of `pip install uv`: pip < 26.2.2
+# and uv < 0.13.4 trust the compromised eMudhra/emSign CA (https://discuss.python.org/t/109576).
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /bin/
 
 # Keeps Python from buffering stdout/stderr so logs aren't lost on a crash.
 ENV PYTHONUNBUFFERED=1
@@ -19,13 +22,13 @@ COPY . /app
 
 # Install into /opt/venv via uv. UV_PYTHON_PREFERENCE=only-system forces the container's
 # Python (so venv symlinks stay valid in the production stage). --no-editable copies files
-# into the venv so the source tree can be dropped.
-RUN pip install uv
+# into the venv so the source tree can be dropped. --locked fails the build instead of
+# re-resolving if uv.lock is stale, so the locked certifi is used.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_PYTHON_PREFERENCE=only-system
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN uv sync --no-dev --no-editable
+RUN uv sync --locked --no-dev --no-editable
 
 # MolScribe is installed WITHOUT its dependencies: its metadata pins torch<2.0, but the
 # resolved environment above already provides a modern torch and MolScribe's real imports
@@ -36,9 +39,10 @@ RUN uv pip install --python /opt/venv/bin/python --no-deps molscribe
 RUN uv pip list
 
 ## -------- Production Stage ----------##
-FROM python:3.11-slim-bullseye AS production
+FROM python:3.11-slim-bookworm AS production
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx libglib2.0-0 && \
+    apt-get install -y --only-upgrade ca-certificates && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # HuggingFace cache lives under the mounted volume so the ~400 MB checkpoint downloads once.
